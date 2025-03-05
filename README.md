@@ -10,7 +10,10 @@ Force-directed graph visualization of Intune components and their relationships.
 
 ## Usage
 
-I mean like... open it. 
+1. Download .html
+2. Doubble click file
+3. ???
+4. You are now slightly less confused (or the opposite?)
 
 ## Implementation
 
