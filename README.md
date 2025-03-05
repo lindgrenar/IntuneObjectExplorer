@@ -10,12 +10,7 @@ Force-directed graph visualization of Intune components and their relationships.
 
 ## Usage
 
-1. Clone or download the repository
-2. Open `index.html` in any modern browser
-3. Explore:
-   - Toggle component categories
-   - Select objects to focus on specific relationships
-   - View relationship details in the side panel
+I mean like... open it. 
 
 ## Implementation
 
