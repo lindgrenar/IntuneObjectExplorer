@@ -4,27 +4,10 @@
 ## Overview
 tl;dr an attempt at visualising Intune
 
-Force-directed graph visualization of Intune components and their relationships. Maps the connections between users, devices, groups, policies, and other objects that constitute the Intune management system. 
+Force-directed graph visualization of Intune components and their relationships. Maps the connections between users, devices, groups, policies, and other objects that constitute the Intune management system. Pure client-side implementation using React and D3.js
+If you notice inaccuracies, missing components, or have suggestions for improvements, please open an issue or submit a PR. This is a technical representation developed through system observation rather than official documentation.
+
+[Click here to run](https://lindgrenar.github.io/IntuneObjectExplorer/)
 
 ![Screenshot](/screenshot.jpg)
 
-## Usage
-
-1. Download .html
-2. Doubble click file
-3. ???
-4. You are now slightly less confused (or the opposite?)
-
-## Implementation
-
-- Pure client-side implementation using React and D3.js
-- Self-contained: All dependencies loaded via CDN
-- Responsive: Adapts to viewport dimensions
-
-## Data Model
-
-The visualization represents 25+ Intune components and 45+ relationship types, capturing the full administrative hierarchy, resource access patterns, and policy enforcement flows.
-
-## Feedback
-
-If you notice inaccuracies, missing components, or have suggestions for improvements, please open an issue or submit a PR. This is a technical representation developed through system observation rather than official documentation.
