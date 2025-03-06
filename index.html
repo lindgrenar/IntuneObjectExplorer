@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Microsoft Intune Object Model Visualization</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #1a202c;
+      color: #e2e8f0;
+      font-family: sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #root {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .visualization-container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .diagram-container {
+      flex: 3;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .connections-panel {
+      flex: 1;
+      border-left: 1px solid #374151;
+      overflow-y: auto;
+      min-width: 300px;
+      max-width: 400px;
+      background-color: #1f2937;
+    }
+
+    .svg-container {
+      flex: 1;
+      min-height: 0;
+      border: 1px solid #374151;
+      border-radius: 0.5rem;
+      background-color: #2c3e50;
+      overflow: hidden;
+    }
+
+    .controls-container {
+      padding: 1rem;
+      flex-shrink: 0;
+    }
+
+    .node-text {
+      text-anchor: middle;
+      font-weight: bold;
+      font-size: 11px;
+      paint-order: stroke;
+      stroke-linejoin: round;
+      stroke-width: 3px;
+    }
+
+    .node circle {
+      transition: r 0.2s;
+    }
+    
+    .node:hover circle {
+      r: 48;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function IntuneObjectMap() {
+      // State management
+
+      const [focusedNode, setFocusedNode] = useState(null);
+      const [selectedObject, setSelectedObject] = useState(null);
+      
+      // SVG ref for d3 visualization
+      const svgRef = useRef(null);
+      const simulationRef = useRef(null);
+      
+      // Categories with consistent colors
+      const categories = [
+          { id: 'core', name: 'Core', color: '#2563eb' },
+          { id: 'policy', name: 'Policies', color: '#ea580c' },
+          { id: 'applications', name: 'Apps', color: '#d946ef' },
+          { id: 'enrollment', name: 'Enrollment', color: '#a3e7fc' },
+          { id: 'admin', name: 'Administration', color: '#dc2626' },
+          { id: 'device', name: 'Devices', color: '#16a34a' },
+          { id: 'remediation', name: 'Remediation', color: '#0ea5e9' },
+          { id: 'api', name: 'Integration', color: '#9333ea' },
+          { id: 'connector', name: 'Connectors', color: '#f97316' },
+          { id: 'reporting', name: 'Reporting', color: '#3b82f6' },
+          { id: 'intuneSuite', name: 'Intune Suite', color: '#8b5cf6' }
+      ];
+      const [activeLayers, setActiveLayers] = useState(
+  	categories.map(category => category.id)
+      );
+      // Nodes array
+      const nodes = [
+          // Core Intune Objects
+          { id: 'users', name: 'Users', category: 'core', description: 'Individual user accounts, synced from or created in Microsoft Entra ID.' },
+          { id: 'devices', name: 'Devices', category: 'core', description: 'Managed devices (phones, tablets, PCs) enrolled in Intune.' },
+          { id: 'groups', name: 'Groups', category: 'core', description: 'User and device groups, synced from or created in Microsoft Entra ID, used for targeting policies and apps.' },
+          { id: 'microsoftEntraID', name: 'Microsoft Entra ID', category: 'core', description: 'Cloud-based identity and access management service, fundamental to Intune. User/Group/Device identities managed here.' },
+
+          // Policies
+          { id: 'configurationProfiles', name: 'Configuration Profiles', category: 'policy', description: 'Profiles that define device settings and configurations.' },
+          { id: 'compliancePolicies', name: 'Compliance Policies', category: 'policy', description: 'Policies that define device compliance requirements.' },
+          { id: 'updateRings', name: 'Windows Update Rings', category: 'policy', description: 'Policies that manage Windows Update settings and scheduling.' },
+          { id: 'featureUpdatePolicies', name: 'Windows Feature Update Policies', category: 'policy', description: 'Policies controlling deployment of Windows feature updates.' },
+          { id: 'qualityUpdatePolicies', name: 'Windows Quality Update Policies', category: 'policy', description: 'Policies controlling deployment of Windows quality updates.' },
+          { id: 'driverUpdatePolicies', name: 'Windows Driver Update Policies', category: 'policy', description: 'Policies that manage driver and firmware updates for Windows devices.' },
+          { id: 'appProtectionPolicies', name: 'App Protection Policies', category: 'policy', description: 'Policies to protect corporate data within managed apps (MAM).'},
+          { id: 'conditionalAccess', name: 'Conditional Access Policies', category: 'policy', description: 'Policies controlling access based on device compliance and other conditions' },
+
+          // Apps
+          { id: 'apps', name: 'Apps', category: 'applications', description: 'Mobile and desktop applications managed and deployed through Intune.' },
+          { id: 'appConfig', name: 'App Configuration', category: 'applications', description: 'Settings to configure application behavior.' },
+
+          // Enrollment
+          { id: 'enrollmentProfiles', name: 'Enrollment Profiles', category: 'enrollment', description: 'Profiles that configure device enrollment settings for different platforms.' },
+          { id: 'windowsAutopilot', name: 'Windows Autopilot', category: 'enrollment', description: 'Configure devices with Windows Autopilot'},
+          { id: 'appleEnrollment', name: 'Apple Enrollment', category: 'enrollment', description: 'Configure Enrollment through ABM/ASM'},
+          { id: 'androidEnrollment', name: 'Android Enrollment', category: 'enrollment', description: 'Configure Android Enrollment methods and profiles' },
+          { id: 'enrollmentRestrictions', name: 'Enrollment Restrictions', category: 'enrollment', description: 'Define device type, limit and platform restrictions'},
+          { id: 'termsAndConditions', name: 'Terms and Conditions', category: 'enrollment', description: 'Define ToU users must accept'},
+          { id: 'enrollmentNotifications', name: 'Enrollment Notifications', category: 'enrollment', description: 'Setup notifications for Windows Autopilot'},
+          { id: 'coManagement', name: 'Co-management', category: 'enrollment', description: 'Co-management of devices with Intune and Configuration Manager' },
+
+          // Administration
+          { id: 'intuneRoles', name: 'Intune Roles', category: 'admin', description: 'Roles that define permissions for Intune administrators (RBAC).' },
+          { id: 'scopeTags', name: 'Scope Tags', category: 'admin', description: 'Tags that control administrative visibility and delegation within Intune.' },
+          { id: 'tenantStatus', name: 'Tenant Status', category: 'admin', description: 'Displays Intune Service Health and other status information' },
+          { id: 'tenantAdministration', name: 'Tenant Administration', category: 'admin', description: 'Tenant-wide settings and administrative functions' },
+          { id: 'notifications', name: 'Notifications', category: 'admin', description: 'Alerts and notifications within Intune' },
+          { id: 'deviceCleanupRules', name:'Device Cleanup Rules', category: 'admin', description: 'Remove devices that have not checked-in past a set number of days'},
+
+          // Device
+          { id: 'deviceCategories', name: 'Device Categories', category: 'device', description: 'Categories for organizing and grouping devices' },
+          { id: 'deviceOwnership', name: 'Device Ownership', category: 'device', description: 'Classification of devices as corporate or personal' },
+          { id: 'devicePlatforms', name: 'Device Platforms', category: 'device', description: 'Operating system platforms of managed devices' },
+          { id: 'groupPolicyAnalytics', name: 'Group Policy Analytics', category: 'device', description: 'Tool for analyzing on-premises Group Policy Objects for migration to Intune.' },
+          { id: 'intuneManagementExtension', name: 'Intune Management Extension', category: 'device', description: 'Agent component: Win32 app deployment, scripting, and other management features on Windows.' },
+          { id: 'macOSAgent', name: 'macOS Agent', category: 'device', description: 'Intune agent for macOS device management' },
+          { id: 'omaCSPs', name: 'OMA CSPs', category: 'device', description: 'OMA Client Service Providers for device configuration' },
+          { id: 'admxADMLTemplates', name: 'ADMX/ADML Templates', category: 'device', description: 'ADMX/ADML templates for Administrative Templates policies' },
+          { id: 'omaURI', name: 'OMA-URI', category: 'device', description: 'Custom configuration settings using OMA-URI' },
+          { id: 'mdmProtocols', name: 'MDM Protocols', category: 'device', description: 'Mobile Device Management communication protocols' },
+          { id: 'scriptEngines', name: 'Script Engines', category: 'device', description: 'Engines for executing scripts on managed devices' },
+
+          // Remediation
+          { id: 'scripts', name: 'Scripts', category: 'remediation', description: 'PowerShell and Shell scripts deployed to devices for custom configurations and remediation.' },
+          { id: 'proactiveRemediations', name: 'Proactive Remediations', category: 'remediation', description: 'Scripts that automatically detect and fix issues on devices.' },
+
+         // Integration
+          { id: 'microsoftGraphAPI', name: 'Microsoft Graph API', category: 'api', description: 'API for programmatic access to Intune data and functions' },
+          { id: 'intuneDataWarehouse', name: 'Intune Data Warehouse', category: 'api', description: 'Warehouse for historical Intune data and reporting' },
+          { id: 'diagnosticSettings', name: 'Diagnostic Settings', category: 'api', description: 'Settings for sending Intune logs to Log Analytics' },
+          { id: 'logAnalyticsWorkspace', name: 'Log Analytics Workspace', category: 'api', description: 'Azure Log Analytics for advanced reporting and analysis' },
+          
+          // Connectors
+          { id: 'intuneConnectorForAD', name: 'Intune Connector for AD', category: 'connector', description: 'Connector for on-premises Active Directory integration.' },
+          { id: 'microsoftCertConnector', name: 'Microsoft Cert Connector', category: 'connector', description: 'Connector for certificate deployment (SCEP/PKCS).' },
+          { id: 'pfxCertConnector', name: 'PFX Cert Connector', category: 'connector', description: 'PFX Certificate Connector for certificate deployment' },
+          { id: 'appleToken', name: "Apple Enrollment Tokens", category: 'connector', description: 'Tokens for ABM/ASM, Apple Configurator, etc.'},
+          { id: 'managedGooglePlayConnector', name: 'Managed Google Play', category: 'connector', description: 'Managed Google Play connector for Android app distribution.' },
+          { id: 'partnerDeviceManagement', name: 'Partner Device Management', category: 'connector', description: 'Integration with third-party partner device management solutions' },
+          { id: 'defenderForEndpoint', name: 'Defender for Endpoint', category: 'connector', description: 'Microsoft Defender for Endpoint integration for device security' },
+
+          // Reporting
+          { id: 'reporting', name: 'Reports', category: 'reporting', description: 'Operational, organizational, historical and specialist reports.'},
+          { id: 'deviceInventory', name: 'Device Inventory', category: 'reporting', description: 'Inventory and details of managed devices' },
+
+          //Intune Suite
+          { id: 'intuneSuite', name: 'Intune Suite', category: 'intuneSuite', description: 'Microsoft Intune Suite of advanced management add-ons' },
+          { id: 'remoteHelp', name: 'Remote Help', category: 'intuneSuite', description: 'Intune Suite add-on for remote assistance to users' },
+          { id: 'endpointPrivilegeManagement', name: 'Endpoint Privilege Management', category: 'intuneSuite', description: 'Intune Suite add-on for managing user privileges' },
+          { id: 'microsoftTunnelGateway', name: 'Microsoft Tunnel Gateway', category: 'intuneSuite', description: 'Intune Suite add-on for VPN gateway' },
+          { id: 'advancedAnalytics', name: 'Advanced Analytics', category: 'intuneSuite', description: 'Intune Suite add-on for advanced data analytics and insights' },
+      ];
+
+      // Links array
+      const links = [
+          // User and Group Management
+          { source: 'microsoftEntraID', target: 'users', type: 'manages', description: 'Entra ID manages user identities.' },
+          { source: 'microsoftEntraID', target: 'groups', type: 'manages', description: 'Entra ID manages group memberships.' },
+          { source: 'microsoftEntraID', target: 'devices', type: 'identifies', description: 'Entra ID provides identity for devices.' },
+          { source: 'users', target: 'groups', type: 'member of', description: 'Users are members of groups.' },
+          { source: 'devices', target: 'groups', type: 'member of', description: 'Devices are members of groups.' },
+
+          // Policy and Profile Targeting
+          { source: 'groups', target: 'configurationProfiles', type: 'targets', description: 'Configuration profiles are assigned to groups.' },
+          { source: 'groups', target: 'compliancePolicies', type: 'targets', description: 'Compliance policies are assigned to groups.' },
+          { source: 'groups', target: 'apps', type: 'targets', description: 'Apps are assigned to groups for deployment.' },
+          { source: 'groups', target: 'updateRings', type: 'targets', description: 'Windows Update Rings are assigned to groups.' },
+          { source: 'groups', target: 'featureUpdatePolicies', type: 'targets', description: 'Feature Update policies are assigned to groups.' },
+          { source: 'groups', target: 'qualityUpdatePolicies', type: 'targets', description: 'Quality Update policies are assigned to groups.' },
+          { source: 'groups', target: 'driverUpdatePolicies', type: 'targets', description: 'Driver Update policies are assigned to groups.' },
+          { source: 'groups', target: 'scripts', type: 'targets', description: 'Scripts are assigned to groups.'},
+          { source: 'groups', target: 'proactiveRemediations', type: 'targets', description: 'Proactive remediations are assigned to groups.'},
+          { source: 'groups', target: 'enrollmentProfiles', type: 'targets', description: 'Enrollment Profiles are assigned to Groups' },
+          { source: 'groups', target: 'appProtectionPolicies', type: 'targets', description: 'App protection policies are assigned to groups.' },
+
+          // Configuration Profiles and Devices
+          { source: 'configurationProfiles', target: 'devices', type: 'configures', description: 'Configuration profiles configure device settings.' },
+          { source: 'configurationProfiles', target: 'devicePlatforms', type: 'platform-specific', description: 'Configuration profiles are often platform-specific.' },
+          { source: 'admxADMLTemplates', target: 'configurationProfiles', type: 'used by', description: 'ADMX/ADML templates are used within Configuration Profiles' },
+          { source: 'omaCSPs', target: 'configurationProfiles', type: 'used by', description: 'OMA-CSPs are used by configuration profiles' },
+          { source: 'omaURI', target: 'configurationProfiles', type: 'used by', description: 'OMA-URI configure settings in configuration profiles' },
+          { source: 'mdmProtocols', target: 'devices', type: 'communicates with', description: 'MDM Protocols used to communicate with devices' },
+
+          // Compliance and Conditional Access
+          { source: 'compliancePolicies', target: 'devices', type: 'evaluates', description: 'Compliance policies evaluate device compliance.' },
+          { source: 'compliancePolicies', target: 'conditionalAccess', type: 'informs', description: 'Compliance states inform Conditional Access policies.' },
+          { source: 'conditionalAccess', target: 'microsoftEntraID', type: 'relies on', description: 'Conditional Access relies on Microsoft Entra ID for identity and access control.'},
+          { source: 'defenderForEndpoint', target: 'compliancePolicies', type: 'provides data for', description: 'Defender for Endpoint provides security data for compliance.' },
+
+          // Enrollment
+          { source: 'enrollmentProfiles', target: 'devices', type: 'used during', description: 'Enrollment profiles are used during device enrollment.' },
+          { source: 'enrollmentProfiles', target: 'devicePlatforms', type: 'platform-specific', description: 'Enrollment profiles are often platform specific' },
+          { source: 'appleEnrollment', target: 'enrollmentProfiles', type: 'uses', description: 'Apple enrollment uses enrollment profiles.' },
+          { source: 'appleEnrollment', target: 'appleToken', type: 'uses', description: 'Apple enrollment requires an Apple enrollment token.' },
+          { source: 'androidEnrollment', target: 'enrollmentProfiles', type: 'uses', description: 'Android enrollment uses enrollment profiles.' },
+          { source: 'androidEnrollment', target: 'managedGooglePlayConnector', type: 'uses', description: 'Android Enrollment uses Managed Google Play Connector' },
+          { source: 'windowsAutopilot', target: 'enrollmentProfiles', type: 'uses', description: 'Windows Autopilot uses enrollment profiles.' },
+          { source: 'coManagement', target: 'devices', type: 'manages', description: 'Co-management manages devices jointly with ConfigMgr.' },
+          { source: 'intuneConnectorForAD', target: 'devices', type: 'connects', description: 'Intune Connector for AD connects devices to on-prem Active Directory' },
+
+          // Application Management
+          { source: 'apps', target: 'devices', type: 'deployed to', description: 'Apps are deployed to managed devices.' },
+          { source: 'appProtectionPolicies', target: 'apps', type: 'protects', description: 'App protection policies protect data within apps.' },
+          { source: 'appProtectionPolicies', target: 'users', type: 'applies to', description: 'App protection policies apply to users' },
+          { source: 'appConfig', target: 'apps', type: 'configures', description: 'App configuration settings configure app behavior.' },
+          { source: 'managedGooglePlayConnector', target: 'apps', type: 'provides', description: 'Managed Google Play provides apps for Android Enterprise' },
+          { source: 'intuneManagementExtension', target: 'apps', type: 'deploys', description: 'Intune Management Extension deploys Win32 apps and scripts.' },
+          { source: 'macOSAgent', target: 'apps', type: 'deploys', description: 'macOS Agent deploys apps on macOS' },
+
+          // Scripting and Remediation
+          { source: 'scripts', target: 'devices', type: 'runs on', description: 'Scripts run on managed devices.' },
+          { source: 'proactiveRemediations', target: 'devices', type: 'runs on', description: 'Proactive remediations run on managed devices.' },
+          { source: 'scriptEngines', target: 'scripts', type: 'executes', description: 'Script engines execute scripts.' },
+          { source: 'intuneManagementExtension', target: 'scripts', type: 'executes', description: 'Intune Management Extension executes scripts on Windows devices.' },
+          { source: 'macOSAgent', target: 'scripts', type: 'executes', description: 'macOS Agent executes scripts on macOS devices' },
+          { source: 'scopeTags', target: 'scripts', type: 'controls access to', description: 'Scope tags control access to scripts.' },
+
+          // Updates (Windows)
+          { source: 'updateRings', target: 'devices', type: 'manages updates for', description: 'Update rings manage Windows Update settings.' },
+          { source: 'featureUpdatePolicies', target: 'devices', type: 'deploys to', description: 'Feature update policies deploy Windows feature updates.' },
+          { source: 'qualityUpdatePolicies', target: 'devices', type: 'deploys to', description: 'Quality update policies deploy Windows quality updates.' },
+          { source: 'driverUpdatePolicies', target: 'devices', type: 'manages updates for', description: 'Driver update policies manage driver and firmware updates.' },
+
+          // Reporting and Monitoring
+          { source: 'microsoftGraphAPI', target: 'reporting', type: 'accesses data for', description: 'The Graph API can be used to access reporting data.' },
+          { source: 'microsoftGraphAPI', target: 'intuneDataWarehouse', type: 'accesses', description: 'The Graph API can access the Intune Data Warehouse.' },
+          { source: 'reporting', target: 'intuneDataWarehouse', type: 'uses', description: 'Intune reporting uses the Data Warehouse.'},
+          { source: 'diagnosticSettings', target: 'logAnalyticsWorkspace', type: 'sends data to', description: 'Diagnostic settings send data to Log Analytics Workspace.' },
+          { source: 'reporting', target: 'devices', type: 'provides data on', description: 'Reporting provides data on device state.'},
+          { source: 'deviceInventory', target: 'devices', type: 'catalogs', description: 'Device inventory catalogs managed devices.' },
+
+          // Certificates
+          { source: 'microsoftCertConnector', target: 'devices', type: 'deploys to', description: 'Certificate connector deploys certificates to devices' },
+          { source: 'pfxCertConnector', target: 'devices', type: 'deploys to', description: 'PFX Certificate connector deploys certificates to devices' },
+
+          // Administration and RBAC
+          { source: 'intuneRoles', target: 'users', type: 'assigned to', description: 'Intune roles are assigned to users.' },
+          { source: 'scopeTags', target: 'intuneRoles', type: 'limits scope of', description: 'Scope tags limit the scope of Intune roles.' },
+          { source: 'scopeTags', target: 'configurationProfiles', type: 'controls access to', description: 'Scope tags control access to configuration profiles.' },
+          { source: 'scopeTags', target: 'compliancePolicies', type: 'controls access to', description: 'Scope tags control access to compliance policies.' },
+          { source: 'scopeTags', target: 'apps', type: 'controls access to', description: 'Scope tags control access to applications.' },
+          { source: 'scopeTags', target: 'enrollmentProfiles', type: 'controls access to', description: 'Scope tags control access to enrollment profiles.' },
+          { source: 'scopeTags', target: 'devices', type: 'controls access to', description: 'Scope tags control access to devices' },
+          { source: 'tenantAdministration', target: 'intuneRoles', type: 'manages', description: 'Tenant Administration manages Intune roles.' },
+          { source: 'tenantAdministration', target: 'scopeTags', type: 'manages', description: 'Tenant Administration manages scope tags.' },
+          { source: 'tenantAdministration', target: 'notifications', type: 'configures', description: 'Tenant Administration configures notifications.' },
+          { source: 'tenantAdministration', target: 'deviceCleanupRules', type: 'manages', description: 'Tenant Admin manages Device Cleanup Rules.' },
+          { source: 'tenantAdministration', target: 'enrollmentRestrictions', type: 'manages', description: 'Tenant Admin manages Enrollment Restrictions.' },
+          { source: 'tenantAdministration', target: 'termsAndConditions', type: 'manages', description: 'Tenant Admin manages Terms and Conditions' },
+          { source: 'tenantAdministration', target: 'enrollmentNotifications', type: 'manages', description: 'Tenant Admin manages Enrollment Notifications' },
+          { source: 'tenantStatus', target: 'tenantAdministration', type: 'provides status of', description: 'Tenant Admin provides status of services' },
+          { source: 'tenantAdministration', target: 'intuneConnectorForAD', type: 'manages', description: 'Tenant Administration manages Intune Connector for AD' },
+          { source: 'tenantAdministration', target: 'microsoftCertConnector', type: 'manages', description: 'Tenant Admin manages Certificate Connectors' },
+
+          // Device Properties and Categories
+          { source: 'deviceCategories', target: 'devices', type: 'categorizes', description: 'Device categories organize devices.' },
+          { source: 'deviceOwnership', target: 'devices', type: 'classifies', description: 'Device ownership classifies devices (corporate/personal).' },
+          { source: 'devicePlatforms', target: 'devices', type: 'identifies', description: 'Device platforms identify the OS of devices.' },
+
+          // Intune Suite
+          { source: 'intuneSuite', target: 'remoteHelp', type: 'includes', description: 'Remote Help is part of Intune Suite' },
+          { source: 'intuneSuite', target: 'endpointPrivilegeManagement', type: 'includes', description: 'EPM is part of Intune Suite' },
+          { source: 'intuneSuite', target: 'microsoftTunnelGateway', type: 'includes', description: 'Tunnel Gateway is part of Intune Suite' },
+          { source: 'intuneSuite', target: 'advancedAnalytics', type: 'includes', description: 'Advanced Analytics is part of Intune Suite' },
+
+          // Group Policy Analytics
+          { source: 'groupPolicyAnalytics', target: 'configurationProfiles', type: 'creates', description: 'Group Policy Analytics helps create configuration profiles from GPOs' },
+
+          // Partner integrations
+          { source: 'partnerDeviceManagement', target: 'devices', type: 'manages', description: 'Partner solutions help manage specific device types' },
+      ];
+
+      // Text contrast helper - enrollment gets white
+      const getContrastColor = (categoryId) => {
+        if (categoryId === 'enrollment') return '#ffffff';
+        return '#ffffff';  // Default to white for all text
+      };
+
+      // Get connections for display in the side panel
+      const getRelevantConnections = () => {
+        if (!focusedNode) {
+          return links.filter(link => 
+            activeLayers.includes(nodes.find(n => n.id === link.source)?.category) && 
+            activeLayers.includes(nodes.find(n => n.id === link.target)?.category)
+          );
+        }
+        
+        // Return connections involving the focused node
+        return links.filter(link => 
+          (link.source === focusedNode || link.target === focusedNode) &&
+          activeLayers.includes(nodes.find(n => n.id === link.source)?.category) &&
+          activeLayers.includes(nodes.find(n => n.id === link.target)?.category)
+        );
+      };
+
+      // Get groups of connections by source
+      const getConnectionGroups = () => {
+        const connections = getRelevantConnections();
+        return Object.entries(
+          connections.reduce((acc, link) => {
+            const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+            const sourceName = nodes.find(n => n.id === sourceId)?.name || sourceId;
+            if (!acc[sourceName]) acc[sourceName] = [];
+            acc[sourceName].push(link);
+            return acc;
+          }, {})
+        );
+      };
+
+      // D3 force layout
+      useEffect(() => {
+        if (!svgRef.current) return;
+        
+        // Stop any existing simulation
+        if (simulationRef.current) {
+          simulationRef.current.stop();
+        }
+        
+        // Filter nodes and links based on active layers and focus
+        const activeNodes = nodes.filter(node => 
+          activeLayers.includes(node.category) ||
+          (focusedNode && (
+            node.id === focusedNode || 
+            links.some(link => 
+              (link.source === focusedNode && link.target === node.id) || 
+              (link.target === focusedNode && link.source === node.id)
+            )
+          ))
+        );
+        
+        const nodeIds = activeNodes.map(n => n.id);
+        
+        const activeLinks = links.filter(link => 
+          nodeIds.includes(typeof link.source === 'object' ? link.source.id : link.source) && 
+          nodeIds.includes(typeof link.target === 'object' ? link.target.id : link.target) &&
+          (!focusedNode || link.source === focusedNode || link.target === focusedNode || 
+           (typeof link.source === 'object' && link.source.id === focusedNode) || 
+           (typeof link.target === 'object' && link.target.id === focusedNode))
+        );
+        
+        // Set up SVG
+        const width = svgRef.current.clientWidth;
+        const height = svgRef.current.clientHeight;
+        
+        d3.select(svgRef.current).selectAll("*").remove();
+        
+        const svg = d3.select(svgRef.current)
+          .attr("viewBox", [0, 0, width, height]);
+          
+        // Add zoom behavior
+        const g = svg.append("g");
+        
+        const zoom = d3.zoom()
+          .extent([[0, 0], [width, height]])
+          .scaleExtent([0.25, 3])
+          .on("zoom", (event) => {
+            g.attr("transform", event.transform);
+          });
+          
+        svg.call(zoom);
+        
+        // Create arrow marker
+        const defs = svg.append("defs");
+        
+        defs.append("marker")
+          .attr("id", "arrow")
+          .attr("viewBox", "0 -5 10 10")
+          .attr("refX", 28)
+          .attr("refY", 0)
+          .attr("markerWidth", 6)
+          .attr("markerHeight", 6)
+          .attr("orient", "auto")
+          .append("path")
+          .attr("d", "M0,-5L10,0L0,5")
+          .attr("fill", "white");
+          
+        // Improved initial node positions using phyllotaxis
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        activeNodes.forEach((node, i) => {
+          const theta = i * 2.399; // Golden angle in radians
+          const r = Math.sqrt(i) * 45; // Radius grows as sqrt(i)
+          node.x = centerX + r * Math.cos(theta);
+          node.y = centerY + r * Math.sin(theta);
+        });
+        
+        // Position focused node in center if it exists
+        if (focusedNode) {
+          const focusedNodeObj = activeNodes.find(n => n.id === focusedNode);
+          if (focusedNodeObj) {
+            focusedNodeObj.x = centerX;
+            focusedNodeObj.y = centerY;
+            focusedNodeObj.fx = centerX;
+            focusedNodeObj.fy = centerY;
+          }
+        }
+        
+        // Create force simulation with more even distribution
+        const simulation = d3.forceSimulation(activeNodes)
+          .force("link", d3.forceLink(activeLinks)
+            .id(d => d.id)
+            .distance(75)  // Increased distance
+            .strength(0.2))
+          .force("charge", d3.forceManyBody()
+            .strength(-200)) // Stronger repulsion
+          .force("center", d3.forceCenter(width / 2, height / 2))
+          .force("collision", d3.forceCollide()
+            .radius(100)      // Increased to prevent overlap
+            .strength(0.7))
+          .alpha(1)
+          .alphaDecay(0.1); // Slower decay means more time to spread out
+        
+        simulationRef.current = simulation;
+        
+        // Create links with improved path calculation
+        const link = g.append("g")
+          .attr("stroke-opacity", 0.6)
+          .selectAll("path")
+          .data(activeLinks)
+          .join("path")
+          .attr("stroke", d => {
+            const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
+            const sourceNode = nodes.find(n => n.id === sourceId);
+            return sourceNode ? categories.find(c => c.id === sourceNode.category)?.color : "#999";
+          })
+          .attr("stroke-width", 2)
+          .attr("marker-end", "url(#arrow)")
+          .attr("fill", "none")
+          .on("click", (event, d) => {
+            setSelectedObject(d);
+            event.stopPropagation();
+          })
+          .on("mouseover", function() {
+            d3.select(this).attr("stroke-width", 3).attr("stroke-opacity", 1);
+          })
+          .on("mouseout", function() {
+            d3.select(this).attr("stroke-width", 2).attr("stroke-opacity", 0.6);
+          });
+        
+        // Link labels
+        const linkLabel = g.append("g")
+          .selectAll("text")
+          .data(activeLinks)
+          .join("text")
+          .attr("fill", "#ffffff")
+          .attr("font-size", "10px")
+          .attr("font-weight", "bold")
+          .attr("text-anchor", "middle")
+          .attr("dy", "-5px")
+          .text(d => d.type)
+          .style("pointer-events", "none")
+          .style("text-shadow", "0 1px 2px rgba(0,0,0,0.9), 0 -1px 2px rgba(0,0,0,0.9)")
+          .attr("opacity", 0.9);
+        
+        // Create nodes with highlight for focused node
+        const node = g.append("g")
+          .selectAll(".node")
+          .data(activeNodes)
+          .join("g")
+          .attr("class", "node")
+          .attr("id", d => `node-${d.id}`)
+          .on("click", (event, d) => {
+            // Toggle focus
+            setFocusedNode(focusedNode === d.id ? null : d.id);
+            event.stopPropagation();
+          })
+          .call(d3.drag()
+            .on("start", dragStart)
+            .on("drag", dragging)
+            .on("end", dragEnd));
+        
+        // Node circles
+        node.append("circle")
+          .attr("r", d => d.id === focusedNode ? 50 : 40) // Larger for focused node
+          .attr("fill", d => categories.find(c => c.id === d.category)?.color || "#999")
+          .attr("stroke", d => d.id === focusedNode ? "#ffffff" : "#333333")
+          .attr("stroke-width", d => d.id === focusedNode ? 3 : 1.5);
+        
+        // Node labels
+        const nodeText = node.append("text")
+          .attr("class", "node-text")
+          .attr("dy", ".35em")
+          .attr("fill", d => getContrastColor(d.category))
+          .attr("stroke", "#000000")
+          .attr("stroke-width", 0.75);
+        
+        // Process text for multi-line labels
+        nodeText.each(function(d) {
+          const text = d3.select(this);
+          const words = d.name.split(/\s+/);
+          
+          // Single words are simple
+          if (words.length === 1) {
+            text.append("tspan")
+              .attr("x", 0)
+              .attr("text-anchor", "middle")
+              .text(words[0]);
+            return;
+          }
+          
+          // For multi-word labels, split intelligently
+          const lines = [];
+          if (words.length <= 3) {
+            const mid = Math.ceil(words.length / 2);
+            lines.push(words.slice(0, mid).join(" "));
+            lines.push(words.slice(mid).join(" "));
+          } else {
+            const chunkSize = Math.ceil(words.length / 3);
+            lines.push(words.slice(0, chunkSize).join(" "));
+            lines.push(words.slice(chunkSize, chunkSize * 2).join(" "));
+            lines.push(words.slice(chunkSize * 2).join(" "));
+          }
+          
+          // Add each line
+          lines.forEach((line, i) => {
+            const lineHeight = 14;
+            const yOffset = (i - (lines.length - 1) / 2) * lineHeight;
+            
+            text.append("tspan")
+              .attr("x", 0)
+              .attr("y", yOffset)
+              .attr("text-anchor", "middle")
+              .text(line);
+          });
+        });
+        
+        // Simulation tick function with improved path calculation
+        simulation.on("tick", () => {
+          // Curved paths for links
+          link.attr("d", d => {
+            const sourceX = d.source.x;
+            const sourceY = d.source.y;
+            const targetX = d.target.x;
+            const targetY = d.target.y;
+            
+            // Self-loops as circles
+            if (d.source === d.target) {
+              return `M${sourceX},${sourceY} A30,30 0 1,1 ${sourceX + 1},${sourceY}`;
+            }
+            
+            // Check if bidirectional
+            const isBidirectional = activeLinks.some(l => 
+              (l !== d) && 
+              ((l.source === d.target && l.target === d.source) || 
+               (l.source.id === d.target.id && l.target.id === d.source.id))
+            );
+            
+            // Direction calculations
+            const dx = targetX - sourceX;
+            const dy = targetY - sourceY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist === 0) return "";
+            
+            // Normalized direction
+            const normX = dx / dist;
+            const normY = dy / dist;
+            
+            // Node radii - larger for focused node
+            const sourceR = d.source.id === focusedNode ? 50 : 40;
+            const targetR = d.target.id === focusedNode ? 50 : 40;
+            
+            // Start and end points
+            const startX = sourceX + normX * sourceR;
+            const startY = sourceY + normY * sourceR;
+            const endX = targetX - normX * targetR;
+            const endY = targetY - normY * targetR;
+            
+            // Curve paths for bidirectional links
+            if (isBidirectional) {
+              const isHigherIndex = activeLinks.indexOf(d) > activeLinks.findIndex(l => 
+                (l.source === d.target && l.target === d.source) ||
+                (l.source.id === d.target.id && l.target.id === d.source.id)
+              );
+              
+              // Create curved path
+              const midX = (startX + endX) / 2;
+              const midY = (startY + endY) / 2;
+              
+              const perpOffset = 20; // Larger offset for better visibility
+              const perpX = -normY * perpOffset;
+              const perpY = normX * perpOffset;
+              
+              const ctrlX = midX + (isHigherIndex ? perpX : -perpX);
+              const ctrlY = midY + (isHigherIndex ? perpY : -perpY);
+              
+              return `M${startX},${startY} Q${ctrlX},${ctrlY} ${endX},${endY}`;
+            }
+            
+            // Straight path for unidirectional
+            return `M${startX},${startY} L${endX},${endY}`;
+          });
+          
+          // Position link labels along paths
+          linkLabel.each(function(d) {
+            const linkPath = link.filter(l => 
+              l.source === d.source && l.target === d.target
+            ).node();
+            
+            if (!linkPath) return;
+            
+            // Position at midpoint of path
+            try {
+              const pathLength = linkPath.getTotalLength();
+              const midPoint = linkPath.getPointAtLength(pathLength / 2);
+              
+              d3.select(this)
+                .attr("x", midPoint.x)
+                .attr("y", midPoint.y);
+            } catch (e) {
+              // Fallback if path length unavailable
+              const sx = d.source.x;
+              const sy = d.source.y;
+              const tx = d.target.x;
+              const ty = d.target.y;
+              
+              d3.select(this)
+                .attr("x", (sx + tx) / 2)
+                .attr("y", (sy + ty) / 2);
+            }
+          });
+          
+          // Position nodes
+          node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+        });
+        
+        // Clear focus on background click
+        svg.on("click", () => {
+          setFocusedNode(null);
+          setSelectedObject(null);
+        });
+        
+        // Standard drag handlers
+        function dragStart(event, d) {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          if (d.id !== focusedNode) { // Allow dragging non-focused nodes
+            d.fx = d.x;
+            d.fy = d.y;
+          }
+        }
+        
+        function dragging(event, d) {
+          if (d.id !== focusedNode) { // Only move non-focused nodes
+            d.fx = event.x;
+            d.fy = event.y;
+          }
+        }
+        
+        function dragEnd(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+          if (d.id !== focusedNode) {
+            // Keep position fixed
+            d.fx = event.x;
+            d.fy = event.y;
+          }
+        }
+        
+        // Center focused node when changed
+        if (focusedNode) {
+          // Reset view to center the focused node
+          const focusedNodeObj = activeNodes.find(n => n.id === focusedNode);
+          if (focusedNodeObj) {
+            // Center the view on this node
+            const scale = 1.0;
+            const transform = d3.zoomIdentity
+              .translate(width/2, height/2)
+              .scale(scale)
+              .translate(-focusedNodeObj.x, -focusedNodeObj.y);
+              
+            svg.transition()
+              .duration(750)
+              .call(zoom.transform, transform);
+          }
+        }
+        
+      }, [activeLayers, focusedNode]);
+      
+      return (
+        <div className="flex flex-col h-full w-full">
+          {/* Header */}
+          <div className="bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold text-white">Intune Ecosystem Explorer</h2>
+              <p className="text-sm text-gray-400">Interactive visualization of component relationships and dependencies</p>
+            </div>
+            <a href="https://github.com/lindgrenar/" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-gray-300 hover:text-white flex items-center transition-colors">
+              <svg className="w-5 h-5 mr-1" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              <span className="text-sm font-medium">lindgrenar · GitHub</span>
+            </a>
+          </div>
+          
+          <div className="visualization-container">
+            {/* Main view area */}
+            <div className="diagram-container">
+              {/* Controls */}
+              <div className="controls-container">
+                {/* Component selector */}
+                <div className="mb-4">
+                  <label className="block text-gray-300 mb-1 text-sm font-medium">Select Component:</label>
+                  <select 
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
+                    value={focusedNode || ''}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      setFocusedNode(selectedId || null);
+                      if (selectedId) {
+                        setSelectedObject(null);
+                      }
+                    }}
+                  >
+                    <option value="">All Components</option>
+                    {nodes
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map(node => (
+                        <option key={node.id} value={node.id}>
+                          {node.name} ({categories.find(c => c.id === node.category)?.name})
+                        </option>
+                      ))
+                    }
+                  </select>
+                </div>
+                
+                {/* Layer toggles */}
+                <div className="mb-4 flex flex-wrap">
+                  {categories.map(category => (
+                    <label key={category.id} className="inline-flex items-center mr-4 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={activeLayers.includes(category.id)}
+                        onChange={() => {
+                          setActiveLayers(
+                            activeLayers.includes(category.id)
+                              ? activeLayers.filter(id => id !== category.id)
+                              : [...activeLayers, category.id]
+                          );
+                        }}
+                        className="mr-1"
+                      />
+                      <span style={{ color: category.color }} className="font-medium">{category.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              
+              {/* D3 visualization */}
+              <div className="svg-container">
+                <svg ref={svgRef} width="100%" height="100%"></svg>
+              </div>
+            </div>
+            
+            {/* Connections panel */}
+            <div className="connections-panel p-4">
+              <h3 className="text-lg font-bold mb-3 pb-2 border-b border-gray-700">
+                {focusedNode 
+                  ? `Connections: ${nodes.find(n => n.id === focusedNode)?.name}` 
+                  : "All Connections"}
+              </h3>
+              
+              {getConnectionGroups().map(([sourceName, sourceLinks]) => (
+                <div key={sourceName} className="mb-4">
+                  <h4 className="text-md font-bold mb-2 text-gray-300 border-b border-gray-700 pb-1">{sourceName}</h4>
+                  {sourceLinks.map((link, index) => {
+                    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+                    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+                    
+                    const sourceNode = nodes.find(n => n.id === sourceId);
+                    const targetNode = nodes.find(n => n.id === targetId);
+                    
+                    const isSelected = selectedObject === link;
+                    
+                    return (
+                      <div 
+                        key={index} 
+                        className={`p-2 mb-2 border rounded cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-900 border-blue-500 shadow' 
+                            : 'bg-gray-700 hover:bg-gray-600 border-gray-600'
+                        }`}
+                        onClick={() => setSelectedObject(isSelected ? null : link)}
+                      >
+                        <div className="flex items-center flex-wrap">
+                          <span className="font-bold mr-2" style={{ 
+                            color: categories.find(c => c.id === sourceNode?.category)?.color 
+                          }}>
+                            {sourceNode?.name}
+                          </span>
+                          <span className="font-medium mx-1 bg-blue-800 text-white px-2 py-0.5 rounded text-xs">
+                            {link.type}
+                          </span>
+                          <span className="mx-1 text-gray-500">→</span>
+                          <span className="font-bold" style={{ 
+                            color: categories.find(c => c.id === targetNode?.category)?.color 
+                          }}>
+                            {targetNode?.name}
+                          </span>
+                        </div>
+                        
+                        {/* Show description if selected */}
+                        <p className="text-sm text-gray-300 mt-1">
+                          {link.description}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              
+              {getConnectionGroups().length === 0 && (
+                <div className="text-center text-gray-400 py-8">
+                  {focusedNode 
+                    ? "No connections for this component with current filters" 
+                    : "No connections match the current filters"}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<IntuneObjectMap />);
+  </script>
+</body>
+</html>
